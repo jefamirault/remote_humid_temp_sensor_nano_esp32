@@ -82,7 +82,7 @@ void loop() {
   if ((uptime() - lastUpdate) > updateInterval) {
     // int last_temp = data[nextIndex - 1].temp;
     // int last_humidity = data[nextIndex - 1].humidity;
-    String requestUrl = endpoint + "?temp=" + latestTemp() + "&humidity=" + latestHumidity() + "&project_id=" + project_id + "&API_KEY=" + api_key;
+    String requestUrl = endpoint + "?temp=" + latestTemp() + "&humidity=" + latestHumidity() + "&project_id=" + project_id + "&sensor_id=" + sensor_id + "&API_KEY=" + api_key;
     // Serial.println(requestUrl); // For Debugging
     if (WiFi.status() == WL_CONNECTED) {
       HTTPClient http;

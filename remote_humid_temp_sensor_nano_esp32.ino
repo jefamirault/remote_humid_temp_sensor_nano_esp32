@@ -19,7 +19,7 @@ struct HygroData { // Data structure for storing sensor data locally
   byte temp;
   byte humidity;
 };
-HygroData data[10000];
+HygroData data[1000];
 
 int readInterval = 60; // time (sec) to wait between taking sensor readings
 int lastReading = -1 * readInterval; // time (sec) when next sensor reading should be recorded locally
@@ -38,6 +38,9 @@ String readString;
 const unsigned char MAX_WORDS = 10;
 String userInput[MAX_WORDS];
 
+unsigned int timeout = 10; // maximum time (seconds) to wait for responses from external server
+unsigned int expireAt;
+
 void setup() {  // put your setup code here, to run once:
   Serial.begin(115200);
   // while (!Serial) ; // wait until Arduino Serial Monitor opens, FOR DEBUG ONLY
@@ -46,7 +49,7 @@ void setup() {  // put your setup code here, to run once:
   Serial.println("Available commands: reset, uptime, temp, humidity, readInterval <newValue>, updateInterval <newValue>");
   Serial.println();
   Serial.println();
-  Serial.print("Connecting to network");
+  Serial.print("Connecting to network: ");
   Serial.println(ssid);
 
   WiFi.begin(ssid, password);
@@ -84,7 +87,8 @@ void loop() {
     // int last_humidity = data[nextIndex - 1].humidity;
     String requestUrl = endpoint + "?temp=" + latestTemp() + "&humidity=" + latestHumidity() + "&project_id=" + project_id + "&sensor_id=" + sensor_id + "&API_KEY=" + api_key;
     // Serial.println(requestUrl); // For Debugging
-    if (WiFi.status() == WL_CONNECTED) {
+    expireAt = uptime() + timeout;
+    if (WiFi.status() == WL_CONNECTED && uptime() < expireAt) {
       HTTPClient http;
       String serverNameStr = requestUrl;
       String serverPath = serverNameStr;
@@ -173,6 +177,8 @@ void takeReading(int tempc, int humidity) {
     data[nextIndex].temp = tempf;
     data[nextIndex].humidity = humidity;
     nextIndex++;
+    if (nextIndex > 1000)
+      nextIndex = 0; // Start over at the beginning of array
     lastReading = time;
     // printData(); // For Debugging
   } else {
@@ -221,6 +227,24 @@ int latestTemp() {
 int latestHumidity() {
   return data[nextIndex - 1].humidity;
 }
+
+bool is_valid_integer(String str) {
+  if (str == "")
+    return false; // int can't be blank
+  size_t i = 0;
+  if (str[0] == '-' || str[0] == '+') {
+    i = 1; // begins with +/- sign
+    if (str.length() == 1)
+      return false;
+  }
+    
+  for (; i < str.length(); ++i) {
+    if (!isdigit(str[i])) // check if each character is a digit
+      return false;
+  }
+  return true;
+}
+
 //////////////////////////////////////////
 // Command I/O                          //
 // Syntax: command <arg1> <arg2> <etc.> //
@@ -234,6 +258,7 @@ void processInput() {
   }
   if (readString.length() > 0) {
     delay(1); // allow time for message to reach output buffer
+    Serial.println(readString); // print message received from user
     int wordCount = 0;
     while (readString.length() > 0) { // Convert input string to array of words
       int index = readString.indexOf(' ');
@@ -257,7 +282,7 @@ void processInput() {
         Serial.print(readInterval);
         Serial.println(" seconds");
       } else {
-        Serial.print("Current Interval: ");
+        Serial.print("Current Read Interval: ");
         Serial.print(readInterval);
         Serial.println(" seconds");
       }
@@ -270,7 +295,7 @@ void processInput() {
         Serial.print(updateInterval);
         Serial.println(" seconds");
       } else {
-        Serial.print("Current Interval: ");
+        Serial.print("Current Update Interval: ");
         Serial.print(updateInterval);
         Serial.println(" seconds");
       }
@@ -286,6 +311,11 @@ void processInput() {
       Serial.print("Latest Humidity: ");
       Serial.print(latestHumidity());      
       Serial.println("%");
+    } else if (command == "nextIndex") {
+      if (is_valid_integer(userInput[1]))
+        nextIndex = userInput[1].toInt();
+      Serial.print("Next index: ");
+      Serial.println(nextIndex);
     } else {
       Serial.print("Command not recognized: "); 
       Serial.println(command);
@@ -297,21 +327,4 @@ void processInput() {
       userInput[i] = "";
     }
   }
-}
-
-bool is_valid_integer(String str) {
-  if (str == "")
-    return false; // int can't be blank
-  size_t i = 0;
-  if (str[0] == '-' || str[0] == '+') {
-    i = 1; // begins with +/- sign
-    if (str.length() == 1)
-      return false;
-  }
-    
-  for (; i < str.length(); ++i) {
-    if (!isdigit(str[i])) // check if each character is a digit
-      return false;
-  }
-  return true;
 }

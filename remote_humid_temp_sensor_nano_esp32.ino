@@ -1,6 +1,7 @@
 #include <DHT11.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <esp_task_wdt.h>
 #include <secrets.h>
 // Local WiFi Network
 // const char* ssid = ****************;
@@ -10,6 +11,9 @@
 // String endpoint = myapp.com/api/transmit
 // String api_key = "****************************************************************";
 // const int project_id = 123456;
+
+// Configure watchdog timeout in seconds
+#define WDT_TIMEOUT 20
 
 WiFiServer server(80); // Initiate WiFi Server
 DHT11 dht11(2);  // Initiate DHT11 Hygro Sensor object using pin 2
@@ -46,6 +50,12 @@ void setup() {  // put your setup code here, to run once:
   // while (!Serial) ; // wait until Arduino Serial Monitor opens, FOR DEBUG ONLY
   delay(2000); // Wait for Serial buffer to catch up
   
+  // Initialize watchdog timer
+  esp_task_wdt_init(WDT_TIMEOUT, true); // Second parameter true enables panic mode
+  esp_task_wdt_add(NULL); // Add current thread to WDT watch
+  
+  Serial.println("Watchdog timer started!");
+
   Serial.println("Available commands: reset, uptime, temp, humidity, readInterval <newValue>, updateInterval <newValue>");
   Serial.println();
   Serial.println();
@@ -69,14 +79,17 @@ void setup() {  // put your setup code here, to run once:
 }
 
 void loop() {
+  esp_task_wdt_reset();
   // Check serial input for commands from user
   processInput();
 
   // Read Sensor Data
   int tempc = 0;
   int humidity = 0;
+  String error = "";
+
   if (uptime() >= lastReading + readInterval) {
-	  takeReading(tempc, humidity);
+	  error = takeReading(tempc, humidity);
   }
 
   /////////////////////////////////////////////
@@ -85,9 +98,13 @@ void loop() {
   if ((uptime() - lastUpdate) > updateInterval) {
     // int last_temp = data[nextIndex - 1].temp;
     // int last_humidity = data[nextIndex - 1].humidity;
-    String requestUrl = endpoint + "?temp=" + latestTemp() + "&humidity=" + latestHumidity() + "&project_id=" + project_id + "&sensor_id=" + sensor_id + "&API_KEY=" + api_key;
+    String requestUrl = endpoint + "?temp=" + latestTemp() + "&humidity=" + latestHumidity() + "&project_id=" + project_id + "&sensor_id=" + sensor_id + "&error=" + error + "&API_KEY=" + api_key;
     // Serial.println(requestUrl); // For Debugging
     expireAt = uptime() + timeout;
+  
+    // Reset watchdog timer before entering test function
+    esp_task_wdt_reset();
+
     if (WiFi.status() == WL_CONNECTED && uptime() < expireAt) {
       HTTPClient http;
       String serverNameStr = requestUrl;
@@ -118,6 +135,7 @@ void loop() {
     else {
       Serial.println("WiFi Disconnected");
     }
+    esp_task_wdt_reset();
     lastUpdate = uptime();
   }
 
@@ -166,7 +184,7 @@ int uptime() {
   return millis() / 1000; // Measured in seconds
 }
 
-void takeReading(int tempc, int humidity) {
+String takeReading(int tempc, int humidity) {
   int result = dht11.readTemperatureHumidity(tempc, humidity);
   int tempf = c_to_f(tempc);
   int time = uptime();
@@ -181,8 +199,14 @@ void takeReading(int tempc, int humidity) {
       nextIndex = 0; // Start over at the beginning of array
     lastReading = time;
     // printData(); // For Debugging
+    
+    if (humidity > 100 || humidity < 0)
+      return "Error: Invalid Sensor Reading";
+    else
+      return "";
   } else {
-	Serial.println(DHT11::getErrorString(result));
+	  Serial.println(DHT11::getErrorString(result));
+    return DHT11::getErrorString(result);
   }
 }
 

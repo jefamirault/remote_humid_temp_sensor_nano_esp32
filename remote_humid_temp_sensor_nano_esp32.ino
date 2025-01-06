@@ -45,6 +45,8 @@ String userInput[MAX_WORDS];
 unsigned int timeout = 10; // maximum time (seconds) to wait for responses from external server
 unsigned int expireAt;
 
+unsigned int errorStreak; // count consecutive errors to to trigger automatic restart when necessary
+
 void setup() {  // put your setup code here, to run once:
   Serial.begin(115200);
   // while (!Serial) ; // wait until Arduino Serial Monitor opens, FOR DEBUG ONLY
@@ -79,7 +81,7 @@ void setup() {  // put your setup code here, to run once:
 }
 
 void loop() {
-  esp_task_wdt_reset();
+  esp_task_wdt_reset(); // Reset watchdog timer
   // Check serial input for commands from user
   processInput();
 
@@ -101,9 +103,6 @@ void loop() {
     String requestUrl = endpoint + "?temp=" + latestTemp() + "&humidity=" + latestHumidity() + "&project_id=" + project_id + "&sensor_id=" + sensor_id + "&error=" + error + "&API_KEY=" + api_key;
     // Serial.println(requestUrl); // For Debugging
     expireAt = uptime() + timeout;
-  
-    // Reset watchdog timer before entering test function
-    esp_task_wdt_reset();
 
     if (WiFi.status() == WL_CONNECTED && uptime() < expireAt) {
       HTTPClient http;
@@ -131,11 +130,17 @@ void loop() {
       }
       // Free resources
       http.end();
-    }
+      
+      if (error != "")
+        errorStreak += 1;
+        if (errorStreak > 1)
+          resetDevice();
+      else
+        errorStreak = 0;
+      }
     else {
       Serial.println("WiFi Disconnected");
     }
-    esp_task_wdt_reset();
     lastUpdate = uptime();
   }
 
@@ -191,17 +196,18 @@ String takeReading(int tempc, int humidity) {
   if (result == 0) {
     sprintf(buff, "Temperature: %i\u00B0F, Humidity: %i%%, Recorded at: %i seconds", tempf, humidity, time);
     Serial.println(buff);
+    if (nextIndex >= 1000)
+      nextIndex = 0; // Start over at the beginning of array
     data[nextIndex].time = time;
     data[nextIndex].temp = tempf;
     data[nextIndex].humidity = humidity;
     nextIndex++;
-    if (nextIndex > 1000)
-      nextIndex = 0; // Start over at the beginning of array
     lastReading = time;
     // printData(); // For Debugging
     
-    if (humidity > 100 || humidity < 0)
+    if (humidity > 100 || humidity < 0) {
       return "Error: Invalid Sensor Reading";
+    }
     else
       return "";
   } else {
